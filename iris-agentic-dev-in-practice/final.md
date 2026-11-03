@@ -13,7 +13,7 @@ iris-agentic-dev is an MCP server that gives an AI coding agent a live connectio
 ## Setup
 
 ```bash
-curl -LO "https://github.com/jrpereirajr/articles/raw/refs/heads/article/iris-agentic-dev-in-practice/iris-agentic-dev-in-practice.zip" && tar -xf iris-agentic-dev-in-practice.zip && cd iris-agentic-dev-in-practice/agentic-tdd-iris
+curl -LO "https://github.com/jrpereirajr/articles/raw/refs/heads/article/iris-agentic-dev-in-practice/iris-agentic-dev-in-practice/iris-agentic-dev-in-practice.zip" && unzip iris-agentic-dev-in-practice.zip && mkdir -p iris-agentic-dev-in-practice/agentic-tdd-iris && for f in *.cls *.markdown *.yml *.png *.txt *.script *.json .gitignore docker-compose.yml; do [ -f "$f" ] && mv "$f" iris-agentic-dev-in-practice/agentic-tdd-iris/; done && cd iris-agentic-dev-in-practice/agentic-tdd-iris
 docker compose up -d --build
 ```
 
