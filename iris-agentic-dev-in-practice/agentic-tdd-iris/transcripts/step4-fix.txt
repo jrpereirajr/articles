@@ -1,0 +1,74 @@
+  ┃
+  ┃  The failing adjacency cases are a real defect: the class comment says back-to-back bookings do not conflict,
+  ┃  but the code rejects them. Fix rooms.Scheduler the TDD way — change the code, not the test — then re-run the
+  ┃  suite.
+  ┃
+
+     + Thought: 27.0s
+
+     ✅ Applying the TDD fix: strict `<` on both comparisons. Let me read the local source first:
+     → Read src/rooms.Scheduler.cls
+  ┃
+  ┃  ← Edit src/rooms.Scheduler.cls
+  ┃
+  ┃  - 	Quit (s1 <= e2) && (s2 <= e1)
+  ┃
+  ┃  + 	Quit (s1 < e2) && (s2 < e1)
+  ┃
+
+     + Thought: 2.1s
+
+     Now pushing the fix to IRIS (audited path) and compiling:
+     ⚙ iris-agentic-dev_iris_doc [content=/// Scheduling rules for the meeting-room reservation service.
+        Class rooms.Scheduler Extends %RegisteredObject
+        {
+
+        /// Converts an HH:MM time string to minutes past midnight.
+        ClassMethod ToMinutes(time As %String) As %Integer
+        {
+        	Quit $Piece(time, ":", 1) * 60 + $Piece(time, ":", 2)
+        }
+
+        /// Two bookings conflict when they share actual time. Back-to-back bookings
+        /// (one ends exactly when the other starts) do NOT conflict — the room is
+        /// free the moment a reservation ends.
+        ClassMethod Overlaps(startTime1 As %String, endTime1 As %String, startTime2 As %String, endTime2 As %String) As %Boolean
+        {
+        	Set s1 = ..ToMinutes(startTime1), e1 = ..ToMinutes(endTime1)
+        	Set s2 = ..ToMinutes(startTime2), e2 = ..ToMinutes(endTime2)
+        	Quit (s1 < e2) && (s2 < e1)
+        }
+
+        }
+
+        , name=rooms.Scheduler.cls, mode=put, compile=true]
+
+     + Thought: 1.2s
+
+     Fix compiled. Re-running the suite:
+     ⚙ iris-agentic-dev_iris_execute [code=Set sc =
+        ##class(%UnitTest.Manager).RunTest("rooms","/load/run/nodelete/recursive") Write !, "RUNSC=", sc, !]
+
+     + Thought: 8.1s
+
+     **All 9 tests pass — green across the board.**
+
+     The fix (src/rooms.Scheduler.cls:18, pushed to IRIS and compiled):
+
+     ```diff
+     -	Quit (s1 <= e2) && (s2 <= e1)
+     +	Quit (s1 < e2) && (s2 < e1)
+     ```
+
+     ```
+     rooms.Tests — All PASSED
+       ✅ TestBackToBackAdjacent            ✅ TestDifferentRoomsNeverConflict
+       ✅ TestBackToBackBookingSameRoomAllowed ✅ TestDisjointIntervals
+       ✅ TestContainedInterval             ✅ TestDuplicateBookingRejected
+       ✅ TestExactDuplicate                ✅ TestOverlappingBookingRejected
+       ✅ TestPartialOverlap
+     ```
+
+     The strict `<` only changes exact-touch behavior — all genuine conflict cases (partial, containment, duplicate) still detect correctly, and rejected bookings still persist nothing. The previously red pair went green with no other test disturbed, confirming this was precisely the one-line boundary defect. Full TDD cycle complete: red (2) → fix (1 line) → green (9/9).
+
+     ▣  Build · GLM-5.3-Flash · 10m 5s
