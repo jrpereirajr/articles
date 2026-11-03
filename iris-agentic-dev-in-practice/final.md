@@ -13,7 +13,7 @@ iris-agentic-dev is an MCP server that gives an AI coding agent a live connectio
 ## Setup
 
 ```bash
-git clone https://github.com/jrpereirajr/articles/iris-agentic-dev-in-practice/agentic-tdd-iris && cd agentic-tdd-iris
+curl -LO "https://github.com/jrpereirajr/articles/raw/refs/heads/article/iris-agentic-dev-in-practice/iris-agentic-dev-in-practice.zip" && tar -xf iris-agentic-dev-in-practice.zip && cd iris-agentic-dev-in-practice/agentic-tdd-iris
 docker compose up -d --build
 ```
 
@@ -37,7 +37,7 @@ The repository ships an `opencode.json` that registers the iris-agentic-dev MCP 
 
 Before talking to the agent, confirm that the MCP server is registered: type `/mcps` or `/status` in the message box. OpenCode lists its MCP servers and their status:
 
-![opencode's /status screen showing the iris-agentic-dev MCP server registered](https://github.com/jrpereirajr/articles/iris-agentic-dev-in-practice/agentic-tdd-iris/raw/master/images/status.png)
+![opencode's /status screen showing the iris-agentic-dev MCP server registered](https://raw.githubusercontent.com/jrpereirajr/articles/refs/heads/article/iris-agentic-dev-in-practice/iris-agentic-dev-in-practice/agentic-tdd-iris/images/status.png)
 
 That dialog is the registration receipt: one server, `iris-agentic-dev`, **connected** and enabled for this project. Registration is not yet a working channel, though. That is why everything that follows (from reading classes to compiling code and running tests) rides on that one connection. So before asking the agent for anything real, remember that the first prompt is a sanity check of the channel itself:
 
