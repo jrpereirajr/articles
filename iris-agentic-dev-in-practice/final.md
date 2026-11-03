@@ -33,6 +33,8 @@ opencode
 
 The repository ships an `opencode.json` that registers the iris-agentic-dev MCP server for the project — nothing to copy.
 
+> **Note**: The MCP connection (`iris-agentic-dev`) powers every interaction through tool calls — reading classes, writing documents, compiling, and running tests all happen via IPC against the live IRIS instance. Your model must support tool calling (function calling / tool use) for the agent to operate; without it, the MCP connection cannot dispatch commands. Any modern agentic AI model with tool-use capability will work (OpenCode's model picker handles this).
+
 ### Verify the Registration
 
 Before talking to the agent, confirm that the MCP server is registered: type `/mcps` or `/status` in the message box. OpenCode lists its MCP servers and their status:
