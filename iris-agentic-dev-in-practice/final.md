@@ -114,7 +114,7 @@ The Setup section left you with an untested `rooms` package in a live namespace,
 
 **Prompt:**
 
-`This IRIS container ships an inherited meeting-room scheduler — the rooms package: rooms.Scheduler, rooms.Booking, and rooms.API. No tests exist at this time. Explore the package and propose a test plan for the interval-overlap logic: which edge cases matter? Plan only — do not code yet.
+`This IRIS container ships an inherited meeting-room scheduler — the rooms package: rooms.Scheduler, rooms.Booking, and rooms.API. No tests exist at this time. Explore the package and propose a test plan for the interval-overlap logic: which edge cases matter? Plan only — do not code yet.`
 
 ```
   ┃
@@ -213,7 +213,7 @@ With the plan from Step 1 agreed, the next move is to turn it into code, and to 
 
 **Prompt:**
 
-`Write the test suite as class rooms.Tests. Cover at least one partial overlap, one interval contained in the other, exact duplicate, back-to-back adjacency (09:00-10:00, then 10:00-11:00 in the same room must be allowed), and different rooms never conflicting. Compile it.
+`Write the test suite as class rooms.Tests. Cover at least one partial overlap, one interval contained in the other, exact duplicate, back-to-back adjacency (09:00-10:00, then 10:00-11:00 in the same room must be allowed), and different rooms never conflicting. Compile it.`
 
 ```
   ┃
@@ -550,7 +550,7 @@ Test-first starts red: before touching any code, run the suite and let it fail (
 
 **Prompt:**
 
-`Run the test suite and show me the results.
+`Run the test suite and show me the results.`
 
 ```
   ┃
@@ -595,7 +595,7 @@ The test is red. Now the question is not *how to make it green,* but *which side
 
 **Prompt:**
 
-`The failing adjacency case is a real defect: the class comment says back-to-back bookings do not conflict, but the code rejects them. Fix rooms.Scheduler the TDD way — change the code, not the test — then re-run the suite.
+`The failing adjacency case is a real defect: the class comment says back-to-back bookings do not conflict, but the code rejects them. Fix rooms.Scheduler the TDD way — change the code, not the test — then re-run the suite.`
 
 ```
   ┃
@@ -677,7 +677,7 @@ The fix in Step 4 already reported green, but one run proves the fix, and a repe
 
 **Prompt:**
 
-`Run the full suite once more and show me the final result.
+`Run the full suite once more and show me the final result.`
 
 ```
   ┃
