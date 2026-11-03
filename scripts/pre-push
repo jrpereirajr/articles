@@ -65,7 +65,7 @@ for dir in "${CHANGED_DIRS[@]}"; do
 
   if [ "$DRY_RUN" = "1" ]; then
     echo "     [dry-run] would rm -f ${REPO_ROOT}/${dir}/${dir}.zip"
-    echo "     [dry-run] would zip -qr ${REPO_ROOT}/${dir}/${dir}.zip -j $dir -x '*.zip' '*/.*'"
+    echo "     [dry-run] would zip -qr ${REPO_ROOT}/${dir}/${dir}.zip $dir -x '*.zip' '*/.*'"
     echo "     [dry-run] would git add ${REPO_ROOT}/${dir}/${dir}.zip"
   else
     ARTICLE_DIR="$REPO_ROOT/$dir"
@@ -78,9 +78,9 @@ for dir in "${CHANGED_DIRS[@]}"; do
     fi
 
     # 2. Create zip named after the article directory
-    # -j junk paths to prevent directory nesting inside the zip
     # -qr: quiet, recurse; -x excludes zip files and hidden files
-    zip -qr "$ZIP_PATH" -j "$dir" -x "*.zip" "*/.*"
+    # NO -j flag: preserves directory structure so Dockerfile COPY src/*.cls works
+    zip -qr "$ZIP_PATH" "$dir" -x "*.zip" "*/.*"
     echo "     -> Created zip: $ZIP_PATH"
 
     # 3. Stage the zip
