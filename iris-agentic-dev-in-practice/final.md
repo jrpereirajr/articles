@@ -45,7 +45,7 @@ That dialog is the registration receipt: one server, `iris-agentic-dev`, **conne
 
 **Prompt:**
 
-`Check your connection to IRIS and show me the details.
+`Check your connection to IRIS and show me the details.`
 
 ```
   ┃
