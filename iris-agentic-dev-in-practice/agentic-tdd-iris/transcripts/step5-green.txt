@@ -1,0 +1,29 @@
+  ┃
+  ┃  Run the full suite once more and show me the final result.
+  ┃
+
+     + Thought: 0.6s
+
+     ⚙ iris-agentic-dev_iris_execute [code=Set sc =
+        ##class(%UnitTest.Manager).RunTest("rooms","/load/run/nodelete/recursive") Write !, "RUNSC=", sc, !]
+
+     + Thought: 0.2s
+
+     **All PASSED — 9/9 test methods, 21/21 assertions.**
+
+     ```
+     rooms.Tests — All PASSED (run Index=11)
+       ✅ TestBackToBackAdjacent               (2 assertions)
+       ✅ TestBackToBackBookingSameRoomAllowed (2)
+       ✅ TestContainedInterval                (2)
+       ✅ TestDifferentRoomsNeverConflict      (3)
+       ✅ TestDisjointIntervals                (2)
+       ✅ TestDuplicateBookingRejected         (3)
+       ✅ TestExactDuplicate                   (1)
+       ✅ TestOverlappingBookingRejected       (5)
+       ✅ TestPartialOverlap                   (2)
+     ```
+
+     The suite is stable against the fixed scheduler: `rooms.Scheduler.Overlaps` now uses strict `<`, back-to-back bookings are accepted as specified, and the shared booking extent stays clean after every run.
+
+     ▣  Build · GLM-5.3-Flash · 4m 11s

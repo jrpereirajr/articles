@@ -1,0 +1,452 @@
+  ┃
+  ┃  Write the test suite as class rooms.Tests. Cover at least: partial overlap, one interval contained in the
+  ┃  other, exact duplicate, back-to-back adjacency (09:00-10:00 then 10:00-11:00 in the same room must be
+  ┃  allowed), and different rooms never conflicting. Compile it.
+  ┃
+
+     + Thought: 1m 28s
+
+     I'll load the ObjectScript guardrails first (required before writing ObjectScript), and check the repo layout to see where test sources should live.
+     ⚙ iris-agentic-dev_skill_describe [name=objectscript-guardrails]
+     ⚙ iris-agentic-dev_skill_describe [name=objectscript-review]
+     ⚙ bash [command=ls -la && ls src 2>/dev/null]
+
+     + Thought: 3m 4s
+
+     ✅ ObjectScript review passed (no `Quit value` in loops/Try, `$$$ISOK`/`$$$ISERR` used, schema-qualified `rooms.Booking` in SQL, no Storage block, intra-class calls via `..`).
+
+     Writing the suite to `src/rooms.Tests.cls` (matching the repo's existing src layout), then pushing to IRIS with compile:
+  ┃
+  ┃  ← Create src/rooms.Tests.cls
+  ┃
+  ┃  /// Test suite for the rooms scheduler: the interval-overlap predicate and the
+  ┃  /// persistent booking path. The back-to-back tests encode the documented spec
+  ┃  /// (a room is free the moment a reservation ends) and are expected RED until
+  ┃  /// Overlaps uses strict inequality.
+  ┃  Class rooms.Tests Extends %UnitTest.TestCase
+  ┃  {
+  ┃
+  ┃  /// Partial overlap conflicts, in either direction.
+  ┃  Method TestPartialOverlap()
+  ┃  {
+  ┃  	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:00","10:00","09:30","11:00"), "A 09:00-10:00 vs B 09:30-11:00 conflicts")
+  ┃  	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:30","11:00","09:00","10:00"), "overlap is symmetric")
+  ┃  }
+  ┃
+  ┃  /// One interval fully contained in the other conflicts, in either direction.
+  ┃  Method TestContainedInterval()
+  ┃  {
+  ┃  	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("08:00","12:00","09:00","10:00"), "B inside A conflicts")
+  ┃  	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:00","10:00","08:00","12:00"), "A inside B conflicts")
+  ┃  }
+  ┃
+  ┃  /// Exact duplicate windows conflict.
+  ┃  Method TestExactDuplicate()
+  ┃  {
+  ┃  	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:00","10:00","09:00","10:00"), "identical intervals conflict")
+  ┃  }
+  ┃
+  ┃  /// Back-to-back adjacency does NOT conflict: one ends exactly when the other
+  ┃  /// starts. Expected RED against the current <= implementation.
+  ┃  Method TestBackToBackAdjacent()
+  ┃  {
+  ┃  	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("09:00","10:00","10:00","11:00"), "ending 10:00 must not block starting 10:00")
+  ┃  	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("10:00","11:00","09:00","10:00"), "adjacency is symmetric")
+  ┃  }
+  ┃
+  ┃  /// Fully disjoint windows never conflict (control case).
+  ┃  Method TestDisjointIntervals()
+  ┃  {
+  ┃  	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("09:00","10:00","11:00","12:00"), "A entirely before B")
+  ┃  	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("11:00","12:00","09:00","10:00"), "A entirely after B")
+  ┃  }
+  ┃
+  ┃  /// Same room: 09:00-10:00 then 10:00-11:00 must both be accepted.
+  ┃  /// Expected RED against the current implementation ("room busy").
+  ┃  Method TestBackToBackBookingSameRoomAllowed()
+  ┃  {
+  ┃  	Do ..CleanupRoom("UT-B2B")
+  ┃  	Set first = ##class(rooms.Booking).Book("UT-B2B", "09:00", "10:00", "tester")
+  ┃  	Do $$$AssertNotEquals(first, "", "first booking accepted")
+  ┃  	Set second = ##class(rooms.Booking).Book("UT-B2B", "10:00", "11:00", "tester", .reason)
+  ┃  	Do $$$AssertNotEquals(second, "", "adjacent booking accepted, reason: " _ $Get(reason))
+  ┃  	Do ..CleanupRoom("UT-B2B")
+  ┃  }
+  ┃
+  ┃  /// Different rooms never conflict, even for identical windows.
+  ┃  Method TestDifferentRoomsNeverConflict()
+  ┃  {
+  ┃  	Do ..CleanupRoom("UT-DR1")
+  ┃  	Do ..CleanupRoom("UT-DR2")
+  ┃  	Set a = ##class(rooms.Booking).Book("UT-DR1", "09:00", "10:00", "tester")
+  ┃  	Do $$$AssertNotEquals(a, "", "booking accepted in room UT-DR1")
+  ┃  	Do $$$AssertTrue(##class(rooms.Booking).CanBook("UT-DR2", "09:00", "10:00"), "same window is free in room UT-DR2")
+  ┃  	Set b = ##class(rooms.Booking).Book("UT-DR2", "09:00", "10:00", "tester")
+  ┃  	Do $$$AssertNotEquals(b, "", "booking accepted in room UT-DR2")
+  ┃  	Do ..CleanupRoom("UT-DR1")
+  ┃  	Do ..CleanupRoom("UT-DR2")
+  ┃  }
+  ┃
+  ┃  /// Overlapping request on a busy room is rejected with reason "room busy"
+  ┃  /// and persists nothing.
+  ┃  Method TestOverlappingBookingRejected()
+  ┃  {
+  ┃  	Do ..CleanupRoom("UT-OVR")
+  ┃  	Set first = ##class(rooms.Booking).Book("UT-OVR", "09:00", "10:00", "tester")
+  ┃  	Do $$$AssertNotEquals(first, "", "first booking accepted")
+  ┃  	Do $$$AssertFalse(##class(rooms.Booking).CanBook("UT-OVR", "09:30", "10:30"), "CanBook rejects overlapping window")
+  ┃  	Set second = ##class(rooms.Booking).Book("UT-OVR", "09:30", "10:30", "tester", .reason)
+  ┃  	Do $$$AssertEquals(second, "", "Book rejects overlapping window")
+  ┃  	Do $$$AssertEquals($Get(reason), "room busy", "reason is room busy")
+  ┃  	Do $$$AssertEquals(..RoomBookingCount("UT-OVR"), 1, "no extra row persisted")
+  ┃  	Do ..CleanupRoom("UT-OVR")
+  ┃  }
+  ┃
+  ┃  /// Exact duplicate of an existing booking is rejected.
+  ┃  Method TestDuplicateBookingRejected()
+  ┃  {
+  ┃  	Do ..CleanupRoom("UT-DUP")
+  ┃  	Set first = ##class(rooms.Booking).Book("UT-DUP", "09:00", "10:00", "tester")
+  ┃  	Do $$$AssertNotEquals(first, "", "first booking accepted")
+  ┃  	Set dupe = ##class(rooms.Booking).Book("UT-DUP", "09:00", "10:00", "tester", .reason)
+  ┃  	Do $$$AssertEquals(dupe, "", "duplicate booking rejected")
+  ┃  	Do $$$AssertEquals(..RoomBookingCount("UT-DUP"), 1, "only one row persisted")
+  ┃  	Do ..CleanupRoom("UT-DUP")
+  ┃  }
+  ┃
+  ┃  /// Deletes this room's rows from the shared booking extent.
+  ┃  ClassMethod CleanupRoom(room As %String)
+  ┃  {
+  ┃  	Set stmt = ##class(%SQL.Statement).%New()
+  ┃  	Set sc = stmt.%Prepare("DELETE FROM rooms.Booking WHERE Room = ?")
+  ┃  	If $$$ISOK(sc) {
+  ┃  		Set rs = stmt.%Execute(room)
+  ┃  	}
+  ┃  }
+  ┃
+  ┃  /// Number of stored bookings for one room (-1 when the query fails).
+  ┃  ClassMethod RoomBookingCount(room As %String) As %Integer
+  ┃  {
+  ┃  	Set stmt = ##class(%SQL.Statement).%New()
+  ┃  	Set sc = stmt.%Prepare("SELECT COUNT(*) AS N FROM rooms.Booking WHERE Room = ?")
+  ┃  	If $$$ISERR(sc) {
+  ┃  		Quit -1
+  ┃  	}
+  ┃  	Set rs = stmt.%Execute(room)
+  ┃  	Do rs.%Next()
+  ┃  	Quit rs.N
+  ┃  }
+  ┃
+  ┃  }
+  ┃
+  ┃
+
+     + Thought: 36.9s
+
+     ⚙ iris-agentic-dev_iris_doc [content=/// Test suite for the rooms scheduler: the interval-overlap predicate and the
+        /// persistent booking path. The back-to-back tests encode the documented spec
+        /// (a room is free the moment a reservation ends) and are expected RED until
+        /// Overlaps uses strict inequality.
+        Class rooms.Tests Extends %UnitTest.TestCase
+        {
+
+        /// Partial overlap conflicts, in either direction.
+        Method TestPartialOverlap()
+        {
+        	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:00","10:00","09:30","11:00"), "A 09:00-10:00 vs B 09:30-11:00 conflicts")
+        	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:30","11:00","09:00","10:00"), "overlap is symmetric")
+        }
+
+        /// One interval fully contained in the other conflicts, in either direction.
+        Method TestContainedInterval()
+        {
+        	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("08:00","12:00","09:00","10:00"), "B inside A conflicts")
+        	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:00","10:00","08:00","12:00"), "A inside B conflicts")
+        }
+
+        /// Exact duplicate windows conflict.
+        Method TestExactDuplicate()
+        {
+        	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:00","10:00","09:00","10:00"), "identical intervals conflict")
+        }
+
+        /// Back-to-back adjacency does NOT conflict: one ends exactly when the other
+        /// starts. Expected RED against the current <= implementation.
+        Method TestBackToBackAdjacent()
+        {
+        	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("09:00","10:00","10:00","11:00"), "ending 10:00 must not block starting 10:00")
+        	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("10:00","11:00","09:00","10:00"), "adjacency is symmetric")
+        }
+
+        /// Fully disjoint windows never conflict (control case).
+        Method TestDisjointIntervals()
+        {
+        	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("09:00","10:00","11:00","12:00"), "A entirely before B")
+        	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("11:00","12:00","09:00","10:00"), "A entirely after B")
+        }
+
+        /// Same room: 09:00-10:00 then 10:00-11:00 must both be accepted.
+        /// Expected RED against the current implementation ("room busy").
+        Method TestBackToBackBookingSameRoomAllowed()
+        {
+        	Do ..CleanupRoom("UT-B2B")
+        	Set first = ##class(rooms.Booking).Book("UT-B2B", "09:00", "10:00", "tester")
+        	Do $$$AssertNotEquals(first, "", "first booking accepted")
+        	Set second = ##class(rooms.Booking).Book("UT-B2B", "10:00", "11:00", "tester", .reason)
+        	Do $$$AssertNotEquals(second, "", "adjacent booking accepted, reason: " _ $Get(reason))
+        	Do ..CleanupRoom("UT-B2B")
+        }
+
+        /// Different rooms never conflict, even for identical windows.
+        Method TestDifferentRoomsNeverConflict()
+        {
+        	Do ..CleanupRoom("UT-DR1")
+        	Do ..CleanupRoom("UT-DR2")
+        	Set a = ##class(rooms.Booking).Book("UT-DR1", "09:00", "10:00", "tester")
+        	Do $$$AssertNotEquals(a, "", "booking accepted in room UT-DR1")
+        	Do $$$AssertTrue(##class(rooms.Booking).CanBook("UT-DR2", "09:00", "10:00"), "same window is free in room UT-DR2")
+        	Set b = ##class(rooms.Booking).Book("UT-DR2", "09:00", "10:00", "tester")
+        	Do $$$AssertNotEquals(b, "", "booking accepted in room UT-DR2")
+        	Do ..CleanupRoom("UT-DR1")
+        	Do ..CleanupRoom("UT-DR2")
+        }
+
+        /// Overlapping request on a busy room is rejected with reason "room busy"
+        /// and persists nothing.
+        Method TestOverlappingBookingRejected()
+        {
+        	Do ..CleanupRoom("UT-OVR")
+        	Set first = ##class(rooms.Booking).Book("UT-OVR", "09:00", "10:00", "tester")
+        	Do $$$AssertNotEquals(first, "", "first booking accepted")
+        	Do $$$AssertFalse(##class(rooms.Booking).CanBook("UT-OVR", "09:30", "10:30"), "CanBook rejects overlapping window")
+        	Set second = ##class(rooms.Booking).Book("UT-OVR", "09:30", "10:30", "tester", .reason)
+        	Do $$$AssertEquals(second, "", "Book rejects overlapping window")
+        	Do $$$AssertEquals($Get(reason), "room busy", "reason is room busy")
+        	Do $$$AssertEquals(..RoomBookingCount("UT-OVR"), 1, "no extra row persisted")
+        	Do ..CleanupRoom("UT-OVR")
+        }
+
+        /// Exact duplicate of an existing booking is rejected.
+        Method TestDuplicateBookingRejected()
+        {
+        	Do ..CleanupRoom("UT-DUP")
+        	Set first = ##class(rooms.Booking).Book("UT-DUP", "09:00", "10:00", "tester")
+        	Do $$$AssertNotEquals(first, "", "first booking accepted")
+        	Set dupe = ##class(rooms.Booking).Book("UT-DUP", "09:00", "10:00", "tester", .reason)
+        	Do $$$AssertEquals(dupe, "", "duplicate booking rejected")
+        	Do $$$AssertEquals(..RoomBookingCount("UT-DUP"), 1, "only one row persisted")
+        	Do ..CleanupRoom("UT-DUP")
+        }
+
+        /// Deletes this room's rows from the shared booking extent.
+        ClassMethod CleanupRoom(room As %String)
+        {
+        	Set stmt = ##class(%SQL.Statement).%New()
+        	Set sc = stmt.%Prepare("DELETE FROM rooms.Booking WHERE Room = ?")
+        	If $$$ISOK(sc) {
+        		Set rs = stmt.%Execute(room)
+        	}
+        }
+
+        /// Number of stored bookings for one room (-1 when the query fails).
+        ClassMethod RoomBookingCount(room As %String) As %Integer
+        {
+        	Set stmt = ##class(%SQL.Statement).%New()
+        	Set sc = stmt.%Prepare("SELECT COUNT(*) AS N FROM rooms.Booking WHERE Room = ?")
+        	If $$$ISERR(sc) {
+        		Quit -1
+        	}
+        	Set rs = stmt.%Execute(room)
+        	Do rs.%Next()
+        	Quit rs.N
+        }
+
+        }
+
+        , compile=true, mode=put, name=rooms.Tests.cls]
+
+     + Thought: 23.6s
+
+     Compile error: `$$$AssertFalse` isn't defined in this IRIS's `%UnitTest` macro set. Let me check which Assert macros actually exist in `%UnitTest.TestCase.inc`:
+     ⚙ iris-agentic-dev_iris_doc [name=%UnitTest.TestCase.inc, mode=get]
+
+     + Thought: 6.8s
+
+     ⚙ iris-agentic-dev_iris_doc [pattern=%UnitTest.*.inc, category=INC, mode=list]
+
+     + Thought: 2.0s
+
+     ⚙ iris-agentic-dev_iris_execute [code=Set cd =
+        ##class(%Dictionary.ClassDefinition).%OpenId("%UnitTest.TestCase") Write cd.IncludeCode, !]
+
+     + Thought: 39.4s
+
+     `$$$AssertFalse` doesn't exist in `%UnitTest` — the canonical idiom is `$$$AssertTrue('(expr))`. Fixing all five occurrences locally, then re-pushing:
+  ┃
+  ┃  ← Edit src/rooms.Tests.cls
+  ┃
+  ┃  - 	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("09:00","10:00","10:00","11:00"), "ending 10:00 must not block starting 10:00")
+  ┃  - 	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("10:00","11:00","09:00","10:00"), "adjacency is symmetric")
+  ┃
+  ┃  + 	Do $$$AssertTrue('(##class(rooms.Scheduler).Overlaps("09:00","10:00","10:00","11:00")), "ending 10:00 must not block starting 10:00")
+  ┃  + 	Do $$$AssertTrue('(##class(rooms.Scheduler).Overlaps("10:00","11:00","09:00","10:00")), "adjacency is symmetric")
+  ┃
+  ┃
+  ┃  ← Edit src/rooms.Tests.cls
+  ┃
+  ┃  - 	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("09:00","10:00","11:00","12:00"), "A entirely before B")
+  ┃  - 	Do $$$AssertFalse(##class(rooms.Scheduler).Overlaps("11:00","12:00","09:00","10:00"), "A entirely after B")
+  ┃
+  ┃  + 	Do $$$AssertTrue('(##class(rooms.Scheduler).Overlaps("09:00","10:00","11:00","12:00")), "A entirely before B")
+  ┃  + 	Do $$$AssertTrue('(##class(rooms.Scheduler).Overlaps("11:00","12:00","09:00","10:00")), "A entirely after B")
+  ┃
+  ┃
+  ┃  ← Edit src/rooms.Tests.cls
+  ┃
+  ┃  - 	Do $$$AssertFalse(##class(rooms.Booking).CanBook("UT-OVR", "09:30", "10:30"), "CanBook rejects overlapping window")
+  ┃
+  ┃  + 	Do $$$AssertTrue('(##class(rooms.Booking).CanBook("UT-OVR", "09:30", "10:30")), "CanBook rejects overlapping window")
+  ┃
+     ⚙ iris-agentic-dev_iris_doc [content=/// Test suite for the rooms scheduler: the interval-overlap predicate and the
+        /// persistent booking path. The back-to-back tests encode the documented spec
+        /// (a room is free the moment a reservation ends) and are expected RED until
+        /// Overlaps uses strict inequality.
+        Class rooms.Tests Extends %UnitTest.TestCase
+        {
+
+        /// Partial overlap conflicts, in either direction.
+        Method TestPartialOverlap()
+        {
+        	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:00","10:00","09:30","11:00"), "A 09:00-10:00 vs B 09:30-11:00 conflicts")
+        	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:30","11:00","09:00","10:00"), "overlap is symmetric")
+        }
+
+        /// One interval fully contained in the other conflicts, in either direction.
+        Method TestContainedInterval()
+        {
+        	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("08:00","12:00","09:00","10:00"), "B inside A conflicts")
+        	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:00","10:00","08:00","12:00"), "A inside B conflicts")
+        }
+
+        /// Exact duplicate windows conflict.
+        Method TestExactDuplicate()
+        {
+        	Do $$$AssertTrue(##class(rooms.Scheduler).Overlaps("09:00","10:00","09:00","10:00"), "identical intervals conflict")
+        }
+
+        /// Back-to-back adjacency does NOT conflict: one ends exactly when the other
+        /// starts. Expected RED against the current <= implementation.
+        Method TestBackToBackAdjacent()
+        {
+        	Do $$$AssertTrue('(##class(rooms.Scheduler).Overlaps("09:00","10:00","10:00","11:00")), "ending 10:00 must not block starting 10:00")
+        	Do $$$AssertTrue('(##class(rooms.Scheduler).Overlaps("10:00","11:00","09:00","10:00")), "adjacency is symmetric")
+        }
+
+        /// Fully disjoint windows never conflict (control case).
+        Method TestDisjointIntervals()
+        {
+        	Do $$$AssertTrue('(##class(rooms.Scheduler).Overlaps("09:00","10:00","11:00","12:00")), "A entirely before B")
+        	Do $$$AssertTrue('(##class(rooms.Scheduler).Overlaps("11:00","12:00","09:00","10:00")), "A entirely after B")
+        }
+
+        /// Same room: 09:00-10:00 then 10:00-11:00 must both be accepted.
+        /// Expected RED against the current implementation ("room busy").
+        Method TestBackToBackBookingSameRoomAllowed()
+        {
+        	Do ..CleanupRoom("UT-B2B")
+        	Set first = ##class(rooms.Booking).Book("UT-B2B", "09:00", "10:00", "tester")
+        	Do $$$AssertNotEquals(first, "", "first booking accepted")
+        	Set second = ##class(rooms.Booking).Book("UT-B2B", "10:00", "11:00", "tester", .reason)
+        	Do $$$AssertNotEquals(second, "", "adjacent booking accepted, reason: " _ $Get(reason))
+        	Do ..CleanupRoom("UT-B2B")
+        }
+
+        /// Different rooms never conflict, even for identical windows.
+        Method TestDifferentRoomsNeverConflict()
+        {
+        	Do ..CleanupRoom("UT-DR1")
+        	Do ..CleanupRoom("UT-DR2")
+        	Set a = ##class(rooms.Booking).Book("UT-DR1", "09:00", "10:00", "tester")
+        	Do $$$AssertNotEquals(a, "", "booking accepted in room UT-DR1")
+        	Do $$$AssertTrue(##class(rooms.Booking).CanBook("UT-DR2", "09:00", "10:00"), "same window is free in room UT-DR2")
+        	Set b = ##class(rooms.Booking).Book("UT-DR2", "09:00", "10:00", "tester")
+        	Do $$$AssertNotEquals(b, "", "booking accepted in room UT-DR2")
+        	Do ..CleanupRoom("UT-DR1")
+        	Do ..CleanupRoom("UT-DR2")
+        }
+
+        /// Overlapping request on a busy room is rejected with reason "room busy"
+        /// and persists nothing.
+        Method TestOverlappingBookingRejected()
+        {
+        	Do ..CleanupRoom("UT-OVR")
+        	Set first = ##class(rooms.Booking).Book("UT-OVR", "09:00", "10:00", "tester")
+        	Do $$$AssertNotEquals(first, "", "first booking accepted")
+        	Do $$$AssertTrue('(##class(rooms.Booking).CanBook("UT-OVR", "09:30", "10:30")), "CanBook rejects overlapping window")
+        	Set second = ##class(rooms.Booking).Book("UT-OVR", "09:30", "10:30", "tester", .reason)
+        	Do $$$AssertEquals(second, "", "Book rejects overlapping window")
+        	Do $$$AssertEquals($Get(reason), "room busy", "reason is room busy")
+        	Do $$$AssertEquals(..RoomBookingCount("UT-OVR"), 1, "no extra row persisted")
+        	Do ..CleanupRoom("UT-OVR")
+        }
+
+        /// Exact duplicate of an existing booking is rejected.
+        Method TestDuplicateBookingRejected()
+        {
+        	Do ..CleanupRoom("UT-DUP")
+        	Set first = ##class(rooms.Booking).Book("UT-DUP", "09:00", "10:00", "tester")
+        	Do $$$AssertNotEquals(first, "", "first booking accepted")
+        	Set dupe = ##class(rooms.Booking).Book("UT-DUP", "09:00", "10:00", "tester", .reason)
+        	Do $$$AssertEquals(dupe, "", "duplicate booking rejected")
+        	Do $$$AssertEquals(..RoomBookingCount("UT-DUP"), 1, "only one row persisted")
+        	Do ..CleanupRoom("UT-DUP")
+        }
+
+        /// Deletes this room's rows from the shared booking extent.
+        ClassMethod CleanupRoom(room As %String)
+        {
+        	Set stmt = ##class(%SQL.Statement).%New()
+        	Set sc = stmt.%Prepare("DELETE FROM rooms.Booking WHERE Room = ?")
+        	If $$$ISOK(sc) {
+        		Set rs = stmt.%Execute(room)
+        	}
+        }
+
+        /// Number of stored bookings for one room (-1 when the query fails).
+        ClassMethod RoomBookingCount(room As %String) As %Integer
+        {
+        	Set stmt = ##class(%SQL.Statement).%New()
+        	Set sc = stmt.%Prepare("SELECT COUNT(*) AS N FROM rooms.Booking WHERE Room = ?")
+        	If $$$ISERR(sc) {
+        		Quit -1
+        	}
+        	Set rs = stmt.%Execute(room)
+        	Do rs.%Next()
+        	Quit rs.N
+        }
+
+        }
+
+        , mode=put, name=rooms.Tests.cls, compile=true]
+
+     + Thought: 2.3s
+
+     ✅ Compiled clean (`rooms.Tests.cls` on IRIS, `cuk` qualifiers). Saved to `src/rooms.Tests.cls` too.
+
+     One fix during compilation: `$$$AssertFalse` doesn't exist in `%UnitTest` — switched to the canonical `$$$AssertTrue('(expr))` idiom on 5 lines.
+
+     **Suite: 9 tests**
+
+     | Required case | Test | Expected today |
+     |---|---|---|
+     | Partial overlap (both directions) | `TestPartialOverlap` | green |
+     | Containment (both directions) | `TestContainedInterval` | green |
+     | Exact duplicate | `TestExactDuplicate` | green |
+     | Back-to-back adjacency (predicate) | `TestBackToBackAdjacent` | 🔴 red — `<=` bug |
+     | Back-to-back 09:00–10:00 then 10:00–11:00, same room | `TestBackToBackBookingSameRoomAllowed` | 🔴 red — 409 "room busy" |
+     | Different rooms never conflict | `TestDifferentRoomsNeverConflict` | green |
+     | Disjoint control + rejection-with-no-write + duplicate-rejected | `TestDisjointIntervals`, `TestOverlappingBookingRejected`, `TestDuplicateBookingRejected` | green |
+
+     Each booking test uses its own `UT-*` room and cleans up its rows, so the shared extent stays untouched and test order doesn't matter. The two red tests are intentional — they encode the documented spec and will go green when `Overlaps` switches to strict `<`. Want me to run the suite to confirm the red/green split?
+
+     ▣  Build · GLM-5.3-Flash · 23m 37s

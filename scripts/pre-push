@@ -1,0 +1,107 @@
+#!/bin/bash
+
+export DRY_RUN="${DRY_RUN:-0}"
+
+if [ "$DRY_RUN" = "1" ]; then
+  echo "📦 [Git Hook] DRY-RUN mode — no changes will be made."
+else
+  echo "📦 [Git Hook] Starting automatic article archiving..."
+fi
+
+# Determine repo root
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+IGNORE_FILE="$REPO_ROOT/ignore.txt"
+
+IGNORE_DIRS=()
+if [ -f "$IGNORE_FILE" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    IGNORE_DIRS+=("$line")
+  done < "$IGNORE_FILE"
+fi
+
+# Detect changed files in local commits not yet pushed
+if git rev-parse --abbrev-ref --symbolic-full-name @{upstream} >/dev/null 2>&1; then
+  CHANGED_FILES=$(git diff --name-only @{upstream}..HEAD 2>/dev/null) || CHANGED_FILES=""
+  if [ -z "$CHANGED_FILES" ]; then
+    CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null) || true
+  fi
+else
+  CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null) || true
+fi
+
+# Extract unique top-level directories from changed files
+CHANGED_DIRS=()
+if [ -n "$CHANGED_FILES" ]; then
+  TEMP_DIRS=$(echo "$CHANGED_FILES" | cut -d'/' -f1 | sort -u)
+  for d in $TEMP_DIRS; do
+    [ -z "$d" ] && continue
+    # Only keep if it's a directory that exists at repo root
+    if [ -d "$REPO_ROOT/$d" ]; then
+      # Check against ignore list
+      skip=0
+      for ignored in "${IGNORE_DIRS[@]}"; do
+        if [ "$d" = "$ignored" ]; then
+          skip=1
+          break
+        fi
+      done
+      [ "$skip" -eq 0 ] && CHANGED_DIRS+=("$d")
+    fi
+  done
+fi
+
+for dir in "${CHANGED_DIRS[@]}"; do
+  skip=0
+  for ignored in "${IGNORE_DIRS[@]}"; do
+    if [ "$dir" = "$ignored" ]; then
+      skip=1
+      break
+    fi
+  done
+  [ "$skip" -eq 1 ] && continue
+
+  echo "  -> Archiving: $dir"
+
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "     [dry-run] would rm -f ${REPO_ROOT}/${dir}/${dir}.zip"
+    echo "     [dry-run] would zip -qr ${REPO_ROOT}/${dir}/${dir}.zip $dir -x '*.zip' '*/.*'"
+    echo "     [dry-run] would git add ${REPO_ROOT}/${dir}/${dir}.zip"
+  else
+    ARTICLE_DIR="$REPO_ROOT/$dir"
+    ZIP_PATH="$ARTICLE_DIR/${dir}.zip"
+
+    # 1. Remove old zip if it exists (explicit path)
+    if [ -f "$ZIP_PATH" ]; then
+      rm -f "$ZIP_PATH"
+      echo "     -> Removed old zip: $ZIP_PATH"
+    fi
+
+    # 2. Create zip named after the article directory
+    # -qr: quiet, recurse; -x excludes zip files and hidden files
+    # NO -j flag: preserves directory structure so Dockerfile COPY src/*.cls works
+    zip -qr "$ZIP_PATH" "$dir" -x "*.zip" "*/.*"
+    echo "     -> Created zip: $ZIP_PATH"
+
+    # 3. Stage the zip
+    git add "$ZIP_PATH"
+    echo "     -> Staged: $ZIP_PATH"
+  fi
+done
+
+if [ "$DRY_RUN" = "1" ]; then
+  if [ ${#CHANGED_DIRS[@]} -gt 0 ]; then
+    echo "     [dry-run] would git commit --amend --no-edit --no-verify"
+  fi
+else
+  if [ ${#CHANGED_DIRS[@]} -gt 0 ]; then
+    git commit --amend --no-edit --no-verify
+  fi
+fi
+
+if [ "$DRY_RUN" = "1" ]; then
+  echo "✅ [Git Hook] Dry-run complete — no changes made."
+else
+  echo "✅ [Git Hook] Archives updated and ready to push!"
+fi
+exit 0

@@ -1,0 +1,49 @@
+
+  ┃
+  ┃  Session rule: whenever you FULLY complete a task I give you, append one line to progress.txt in this directory,
+  ┃  exactly: DONE <short-step-id>, then answer. Don't write DONE for this rule itself.
+  ┃
+
+     + Thought: 7.7s
+
+     Understood — I'll append DONE <short-step-id> to progress.txt after each fully completed task.
+
+     ▣  Build · GLM-5.3 · 13.7s
+
+
+
+                                  MCPs                                             esc
+
+                                  Search
+
+                                  iris-agentic-dev connected                 ✓ Enabled
+
+                                  toggle space
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · GLM-5.3 NVIDIA NIM
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /home/jose/dev/article-agent/repos/agentic-tdd-iris                                     35.9K (4%)  ctrl+p commands
