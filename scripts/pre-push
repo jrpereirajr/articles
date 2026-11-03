@@ -1,0 +1,86 @@
+#!/bin/bash
+
+DRY_RUN="${DRY_RUN:-0}"
+
+if [ "$DRY_RUN" = "1" ]; then
+  echo "📦 [Git Hook] DRY-RUN mode — no changes will be made."
+else
+  echo "📦 [Git Hook] Starting automatic article archiving..."
+fi
+
+IGNORE_FILE="ignore.txt"
+declare -a IGNORE_DIRS=()
+
+if [ -f "$IGNORE_FILE" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    IGNORE_DIRS+=("$line")
+  done < "$IGNORE_FILE"
+fi
+
+# Detect changed files in local commits not yet pushed
+if git rev-parse --abbrev-ref --symbolic-full-name @{upstream} >/dev/null 2>&1; then
+  CHANGED_FILES=$(git diff --name-only @{upstream}..HEAD 2>/dev/null)
+  # Fall back to HEAD~1..HEAD if upstream diff is empty (e.g. no tracking branch set)
+  if [ -z "$CHANGED_FILES" ]; then
+    CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD)
+  fi
+else
+  CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only HEAD)
+fi
+
+declare -a CHANGED_DIRS=()
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
+  top_dir="${file%%/*}"
+  if [ "$top_dir" != "$file" ] && [ -d "$top_dir" ]; then
+    CHANGED_DIRS+=("$top_dir")
+  fi
+done <<< "$CHANGED_FILES"
+
+# Remove duplicates
+CHANGED_DIRS=($(printf '%s\n' "${CHANGED_DIRS[@]}" | sort -u))
+
+for dir in "${CHANGED_DIRS[@]}"; do
+  skip=0
+  for ignored in "${IGNORE_DIRS[@]}"; do
+    if [ "$dir" = "$ignored" ]; then
+      skip=1
+      break
+    fi
+  done
+  [ "$skip" -eq 1 ] && continue
+
+  echo "  -> Archiving: $dir"
+
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "     [dry-run] would rm -f ${dir}/${dir}.zip"
+    echo "     [dry-run] would zip -qr ${dir}/${dir}.zip $dir -x \"*.zip\" \"*/.*\""
+    echo "     [dry-run] would git add ${dir}/${dir}.zip"
+  else
+    # Remove old zip if it exists (zip named after the article directory)
+    rm -f "${dir}/${dir}.zip"
+
+    # Create zip named after the directory, excluding zips and hidden files
+    zip -qr "${dir}/${dir}.zip" "$dir" -x "*.zip" "*/.*"
+
+    git add "${dir}/${dir}.zip"
+  fi
+done
+
+if [ "$DRY_RUN" = "1" ]; then
+  if [ ${#CHANGED_DIRS[@]} -gt 0 ]; then
+    echo "     [dry-run] would git commit --amend --no-edit --no-verify"
+  fi
+else
+  if [ ${#CHANGED_DIRS[@]} -gt 0 ]; then
+    git commit --amend --no-edit --no-verify
+  fi
+fi
+
+if [ "$DRY_RUN" = "1" ]; then
+  echo "✅ [Git Hook] Dry-run complete — no changes made."
+else
+  echo "✅ [Git Hook] Archives updated and ready to push!"
+fi
+exit 0
