@@ -1,0 +1,90 @@
+  ┃
+  ┃  This IRIS container ships an inherited meeting-room scheduler — the rooms package: rooms.Scheduler,
+  ┃  rooms.Booking, rooms.API. No tests exist. Explore the package and propose a test plan for the
+  ┃  interval-overlap logic: which edge cases matter? Plan only — no code yet.
+  ┃
+
+     + Thought: 3.7s
+
+     Introspection shows the key surface: `Scheduler.Overlaps()` + `Scheduler.ToMinutes()` (the core interval logic), `Booking.CanBook()`/`Booking.Book()` (persistence + conflict check), and `API.CreateBooking()`/`ListBookings()`. Let me read the actual source to see how overlap is implemented before proposing the plan.
+     ⚙ iris-agentic-dev_iris_doc [mode=get, name=rooms.Scheduler.cls]
+     ⚙ iris-agentic-dev_iris_doc [mode=get, name=rooms.Booking.cls]
+     ⚙ iris-agentic-dev_iris_doc [mode=get, name=rooms.API.cls]
+
+     + Thought: 1m 49s
+
+     I now have full source for all three classes. Before writing the plan, two quick checks: confirm no test classes exist yet, and see whether the `rooms.Booking` table already holds data (this decides the test-data isolation strategy).
+     ⚙ iris-agentic-dev_iris_doc_search [pattern=rooms.*, mode=list]
+     ⚙ iris-agentic-dev_iris_query [mode=count, query=SELECT COUNT(*) AS N FROM rooms.Booking]
+
+     + Thought: 2.0s
+
+     The count mode returned the row count of the count-query itself (1 row), not the booking total — let me read the actual value, and fix my document list call (wrong tool earlier).
+     ⚙ iris-agentic-dev_iris_query [mode=read, query=SELECT COUNT(*) AS N FROM rooms.Booking]
+     ⚙ iris-agentic-dev_iris_doc [pattern=rooms.*, mode=list]
+
+     + Thought: 1.5s
+
+     Booking table is empty (N=0) — clean-slate setup is safe. One retry on the doc list with an explicit `.cls` pattern:
+     ⚙ iris-agentic-dev_iris_doc [pattern=rooms.*.cls, mode=list]
+
+     + Thought: 0.6s
+
+     ⚙ iris-agentic-dev_iris_doc [category=CLS, mode=list, pattern=rooms.*.cls]
+
+     + Thought: 55.7s
+
+     Exploration complete. Three classes in namespace `USER`, no tests, `rooms.Booking` extent is empty. Here's the plan.
+
+     ## What the code does
+
+     | Layer | Surface | Role |
+     |---|---|---|
+     | Pure | `Scheduler.ToMinutes("HH:MM")` | parses to minutes-past-midnight via `$Piece` — no validation whatsoever |
+     | Pure | `Scheduler.Overlaps(s1,e1,s2,e2)` | conflict predicate: `(s1 <= e2) && (s2 <= e1)` |
+     | Integration | `Booking.CanBook` / `Book` | SQL scan per room → Overlaps → `%Save`, returns id or `""` + `pReason` |
+     | HTTP | `API.CreateBooking` / `ListBookings` | POST → 200 `{"id"}` / 409 `room busy` / 400 bad JSON; GET → availability list |
+
+     ## Critical finding: spec vs. implementation
+
+     The class doc comment is explicit: *"Back-to-back bookings (one ends exactly when the other starts) do NOT conflict."* The implementation uses `<=` on **both** sides, so exact endpoint touching returns **conflict**: 09:00–10:00 vs 10:00–11:00 → busy. The correct half-open form is `(s1 < e2) && (s2 < e1)`; the only case where the two differ is the exact-touch boundary — precisely the case the spec calls out.
+
+     **Plan: encode the documented contract.** The two "meets" tests (predicate + integration) are expected to fail today — that's the red anchor of the TDD loop. Everything else characterizes current behavior.
+
+     ## Edge cases that matter
+
+     **Tier 1 — `Overlaps` canonical relations** (table-driven; both orderings for symmetry):
+
+     | Relation | Example (A / B) | Expected | Note |
+     |---|---|---|---|
+     | Meets (A→B) | 09:00–10:00 / 10:00–11:00 | **no conflict** | 🔴 fails now — flagship bug |
+     | Meets (B→A) | 10:00–11:00 / 09:00–10:00 | **no conflict** | 🔴 fails now (symmetry) |
+     | Identical | 09:00–10:00 / 09:00–10:00 | conflict | |
+     | Partial overlap L/R | 09:00–10:00 / 09:30–11:00 (+ mirror) | conflict | |
+     | Containment | 08:00–12:00 / 09:00–10:00 (+ inverse) | conflict | |
+     | Starts/finishes (share an endpoint, interior touch) | 09:00–10:00 / 09:00–10:30 | conflict | distinguishes `<=` vs `<` from meets |
+     | Disjoint before/after | 09:00–10:00 / 11:00–12:00 (+ mirror) | no conflict | |
+
+     **Tier 2 — `ToMinutes` parser** (everything rests on it; permissive today, so split into *pin-as-is* vs *fix-later*):
+     - Canonical: `00:00`→0, `09:30`→570, `23:59`→1439
+     - Lenient-but-OK: `"9:00"`→540, `"24:00"`→1440 (pin whether end-of-day is legal)
+     - Silent-coercion traps (characterize first, then decide): `"9:5"`→545 (=09:05, not 09:50), `"09:60"`→600 (rollover), `"25:00"`→1500, `"-1:30"`→−30, `""`→0 (**empty string = midnight**), `"0900"`→54000 (missing colon), `"09:00:30"`→540 (seconds dropped)
+     - Downstream consequence tests: reversed interval (10:00–09:00) and overnight (23:00–01:00) behave as empty intervals → **conflict with nothing → Book silently succeeds**. Class doc says single-day calendar, so recommend explicit rejection — decision to pin.
+
+     **Tier 3 — `CanBook`/`Book` integration** (where the bug becomes user-visible: an adjacent 10:00 meeting gets 409 "room busy"):
+     - Empty calendar → bookable; id returned is numeric
+     - Overlap rejected: `""` + `pReason="room busy"`; and **no row written** (count unchanged)
+     - Back-to-back accepted → 🔴 fails now (integration twin of the flagship test)
+     - Disjoint accepted; conflict against *any* of several rows
+     - Cross-room isolation (WHERE Room = ? actually filters); room-name case sensitivity (`"Atlantis"` ≠ `"atlantis"` in IRIS) — pin
+     - Data isolation: extent is empty, dev container → truncate in setup, or per-test room names (`T-<suffix>`) if parallelism matters
+
+     **Tier 4 — API smoke (thin, second pass):** 200/409/400 happy paths; `GET /availability` ordering and unknown room; POST `{}` missing-field hazard — `body.room` is accessed outside the `Try`, likely throws and yields 500 instead of 400 (characterization test will tell). Mocked `%request` or `%UnitTest.TestProduction`; flag as the one infra hurdle.
+
+     ## Proposed structure
+
+     `rooms.Tests.SchedulerTest` (Tiers 1–2, pure, no cleanup), `rooms.Tests.BookingTest` (Tier 3), `rooms.Tests.ApiTest` (Tier 4). Run via `rooms.Tests` pattern, ~90% coverage target on `rooms.Scheduler`/`rooms.Booking` first. Expected initial state: exactly 2 red (the meets pair), all else green — anything else red is a bonus finding.
+
+     Say the word and I'll scaffold the test classes.
+
+     ▣  Build · GLM-5.3-Flash · 12m 58s

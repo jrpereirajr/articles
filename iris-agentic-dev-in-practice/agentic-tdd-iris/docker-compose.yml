@@ -1,0 +1,9 @@
+services:
+  iris:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agentic-tdd-iris
+    restart: always
+    ports:
+      - "52778:52773"

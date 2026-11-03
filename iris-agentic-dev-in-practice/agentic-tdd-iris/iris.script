@@ -1,0 +1,34 @@
+zn "%SYS"
+Kill props
+Set props("Password")="SYS"
+Set props("Flags")=0
+Set props("InvalidLoginAttempts")=0
+Set props("InvalidLoginStatus")=""
+Set props("PasswordNeverExpires")=1
+Write "Modify: ", ##class(Security.Users).Modify("SuperUser", .props),!
+zn "USER"
+Set sc = $System.OBJ.Load("/tmp/seed/rooms.Scheduler.cls","ck")
+Write "Scheduler: ",$System.Status.GetErrorText(sc),!
+Set sc = $System.OBJ.Load("/tmp/seed/rooms.Booking.cls","ck")
+Write "Booking: ",$System.Status.GetErrorText(sc),!
+Set sc = $System.OBJ.Load("/tmp/seed/rooms.API.cls","ck")
+Write "API: ",$System.Status.GetErrorText(sc),!
+Set ^UnitTestRoot = "/home/irisowner/dev/tests"
+; Seed smoke test — visible in the build log; a broken seed must never ship.
+Set smokeId = ##class(rooms.Booking).Book("smoke","09:00","10:00","smoke",.smokeReason)
+If smokeId = "" Write "SEED SMOKE TEST FAILED: ",smokeReason,!
+Else Write "SEED SMOKE TEST OK (id ",smokeId,")",!
+Do ##class(rooms.Booking).%KillExtent()
+; Web app LAST — Security.Applications.Create validates the dispatch class,
+; so rooms.API must already be compiled when this runs.
+zn "%SYS"
+Kill app
+Set app("Name")="/api/rooms"
+Set app("DispatchClass")="rooms.API"
+Set app("NameSpace")="USER"
+Set app("Type")=2
+Set app("AutheEnabled")=64
+Set app("MatchRoles")=":%All"
+Set app("Enabled")=1
+Write "WebApp: ", ##class(Security.Applications).Create("/api/rooms", .app),!
+Halt

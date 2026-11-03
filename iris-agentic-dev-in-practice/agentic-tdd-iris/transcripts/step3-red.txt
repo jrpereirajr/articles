@@ -1,0 +1,162 @@
+  ┃
+  ┃  Run the test suite and show me the results.
+  ┃
+
+     + Thought: 0.8s
+
+     ⚙ iris-agentic-dev_iris_test [pattern=rooms.Tests]
+
+     + Thought: 20.8s
+
+     ⚙ iris-agentic-dev_iris_global [global_name=UnitTestRoot, action=get]
+     ⚙ iris-agentic-dev_iris_test [pattern=rooms.Tests.cls]
+
+     + Thought: 41.1s
+
+     `^UnitTestRoot` points at `/home/irisowner/dev/tests`, but the tool hint says it wants a bare package name — `rooms.Tests` as a package-with-one-class doesn't match its enumeration. Trying `rooms`:
+     ⚙ iris-agentic-dev_iris_test [pattern=rooms]
+
+     + Thought: 44.6s
+
+     Still nothing — the tool resolves patterns against `^UnitTestRoot` (`/home/irisowner/dev/tests`), which likely doesn't exist in the container. Let me check and create it, then retry:
+     ⚙ iris-agentic-dev_iris_execute [code=Write "exists: " _
+        ##class(%File).Exists("/home/irisowner/dev/tests"), ! Do
+        ##class(%File).CreateDirectory("/home/irisowner/dev/tests") Write "after: " _
+        ##class(%File).Exists("/home/irisowner/dev/tests"), !]
+
+     + Thought: 41.3s
+
+     The directory exists — so `^UnitTestRoot` is fine, but the runner needs the test source file on disk there (standard %UnitTest layout). Let me find the container and copy the audited source in:
+     ⚙ iris-agentic-dev_iris_containers [action=list]
+
+     + Thought: 5.7s
+
+     Container found: `agentic-tdd-iris` (matches our connection). Copying the test source into its `^UnitTestRoot`:
+     ⚙ bash [command=
+        docker cp src/rooms.Tests.cls agentic-tdd-iris:/home/irisowner/dev/tests/rooms.Tests.cls && docker
+        exec agentic-tdd-iris ls -la /home/irisowner/dev/tests/
+        ]
+
+     + Thought: 2.0s
+
+     There's already a `rooms/` directory in the test root (shipped with the image). Let me fix ownership and see what's inside:
+     ⚙ bash [command=
+        docker exec agentic-tdd-iris sh -c 'chown irisowner:irisowner
+        /home/irisowner/dev/tests/rooms.Tests.cls; find /home/irisowner/dev/tests/rooms -type f | head -20'
+        ]
+
+     + Thought: 15.6s
+
+     Ownership isn't changeable from that user, but the file is world-readable — sufficient. The shipped `rooms/` dir appears empty. Running the suite now:
+     ⚙ iris-agentic-dev_iris_test [pattern=rooms.Tests.cls]
+
+     + Thought: 4.3s
+
+     The tool's enumeration keeps failing even with the file present. Let me bypass it and drive `%UnitTest.Manager` directly to see the raw behavior:
+     ⚙ iris-agentic-dev_iris_execute [code=Set mgr = ##class(%UnitTest.Manager).%New() Set sc =
+        mgr.RunTest("rooms.Tests.cls","/noload") Write !, "SC=", $System.Status.GetErrorText(sc), !]
+
+     + Thought: 28.4s
+
+     RunTest returned OK but zero output — nothing ran. Let me inspect what the manager actually found, walking the Result tree:
+     ⚙ iris-agentic-dev_iris_execute [code=Set mgr = ##class(%UnitTest.Manager).%New() Set sc =
+        mgr.RunTest("rooms.Tests.cls","/noload") Write "sc=", sc, " suites=", mgr.Result.Suites.Count(), !
+        Try { Set s = mgr.Result.Suites.GetAt(1) Write "suite=", s.Name, " passed=", s.Passed, " failed=",
+        s.Failed, ! Set c = s.TestCases.GetAt(1) Write "case=", c.Name, " passed=", c.Passed, " failed=",
+        c.Failed, ! For k = 1:1:c.TestMethods.Count() { Set m = c.TestMethods.GetAt(k) Write "method=",
+        m.Name, " status=", m.Status, ! } } Catch er { Write "walk-err: ", er.DisplayString(), ! }]
+
+     + Thought: 38.9s
+
+     Even my own `Write` after `RunTest` vanished — the manager is swallowing the device. Let me read the actual `%UnitTest` source to understand its machinery:
+     ⚙ iris-agentic-dev_iris_doc [mode=get, name=%UnitTest.Manager.cls]
+     ⚙ iris-agentic-dev_iris_doc [mode=get, name=%UnitTest.TestCase.cls]
+
+     + Thought: 48.7s
+
+     The Manager source got saved to disk (141KB). Let me pinpoint `RunTest`'s output/termination behavior instead of guessing:
+     → Grep ^(Method|ClassMethod) RunTest|^RunTest|RunOneTest|Method RunOne
+     → Grep HALT|Halt|halt
+
+     + Thought: 2.7s
+
+     The tool output is one giant JSON line — extracting the class source properly:
+     ⚙ bash [command=python3 -c "
+        import json
+        with open('/home/jose/.local/share/opencode/tool-output/tool_146e974c8001EEntuSiVnnE8Og') as f:
+            d = json.load(f)
+        src = d['content'] if isinstance(d, dict) and 'content' in d else str(d)
+        open('/tmp/opencode/Manager.cls','w').write(src)
+        print(len(src))
+        "
+        ]
+     ⚙ bash [command=
+        grep -n "Method RunTest\|ClassMethod RunTest\|RunOneTest\|Halt\|Use \"" /tmp/opencode/Manager.cls |
+        head -30
+        ]
+
+     + Thought: 1.9s
+
+     `RunTest` is a `ClassMethod` — my instance call still dispatches, so that's not the blocker. Let me read the method body to see the output/log handling:
+     → Read /tmp/opencode/Manager.cls (from 386)
+
+     + Thought: 1.7s
+
+     → Read /tmp/opencode/Manager.cls (from 475)
+
+     + Thought: 12.6s
+
+     Found it — line 634: the spec's dots become directory separators, so `rooms.Tests` resolves to `<UnitTestRoot>/rooms/Tests/` — a directory that doesn't exist. `RunTest` is entirely **directory-based**; that's why the image ships an empty `rooms/` dir. Let me confirm how `RunOneTestSuite` maps files to class names:
+     → Read /tmp/opencode/Manager.cls (from 838)
+
+     + Thought: 45.6s
+
+     Now the full picture: `ImportDir` enumerates **files** in the suite directory, so the class file must live at `<UnitTestRoot>/rooms/Tests.cls` (suite dir + file name = class name). Before running, let me check the default qualifiers (avoid surprise `/delete` wiping the compiled class):
+     ⚙ bash [command=
+        grep -n "qualifierParseAlterDefault\|ReturnDefaultQualifiers\|DefaultQualifier\|/delete\|nodelete"
+        /tmp/opencode/Manager.cls | head -20
+        ]
+
+     + Thought: 19.9s
+
+     Defaults include `/delete` semantics, so I'll pass explicit qualifiers `/load/run/nodelete/recursive`. Copying the file into the suite directory (suite dir `rooms` + file `Tests.cls` = class `rooms.Tests`, the documented convention):
+     ⚙ bash [command=
+        docker cp src/rooms.Tests.cls agentic-tdd-iris:/home/irisowner/dev/tests/rooms/Tests.cls && docker
+        exec agentic-tdd-iris ls -la /home/irisowner/dev/tests/rooms/
+        ]
+     ⚙ iris-agentic-dev_iris_execute [code=Set sc =
+        ##class(%UnitTest.Manager).RunTest("rooms","/load/run/nodelete/recursive") Write !, "RUNSC=", sc, !]
+
+     + Thought: 18.8s
+
+     Suite ran — 7 passed, 2 failed, and the failures are exactly the predicted adjacency bug. Verifying the test data cleaned up and removing the stray copy at the test-root level:
+     ⚙ iris-agentic-dev_iris_query [mode=read, query=SELECT COUNT(*) AS N FROM rooms.Booking]
+     ⚙ bash [command=docker exec agentic-tdd-iris rm -f /home/irisowner/dev/tests/rooms.Tests.cls]
+
+     + Thought: 0.4s
+
+     **Run complete — 7 passed, 2 failed, exactly the predicted red/green split.**
+
+     ```
+     rooms.Tests
+       ✅ TestPartialOverlap              (2 assertions)
+       ✅ TestContainedInterval           (2)
+       ✅ TestExactDuplicate              (1)
+       🔴 TestBackToBackAdjacent          (2 FAILED)
+       ✅ TestDisjointIntervals           (2)
+       🔴 TestBackToBackBookingSameRoomAllowed (1 FAILED: "reason: room busy")
+       ✅ TestDifferentRoomsNeverConflict (3)
+       ✅ TestOverlappingBookingRejected  (5)
+       ✅ TestDuplicateBookingRejected    (3)
+     ```
+
+     **The 2 reds confirm the bug:** `Scheduler.Overlaps` uses `<=` on both sides, so 09:00–10:00 vs 10:00–11:00 reports a conflict — contradicting the class's own documented contract ("back-to-back bookings do NOT conflict"). User-visible symptom: booking an adjacent meeting gets rejected with "room busy". The fix is strict `<` on both comparisons; the suite already encodes the target spec, so it should go fully green after that one-line change.
+
+     Notes:
+     - Booking extent is clean (`N=0`) — each test cleaned up its `UT-*` rows even while failing.
+     - Getting here required the standard `%UnitTest` layout: it's directory-based (spec dots → path), so the suite now lives at `<UnitTestRoot>/rooms/Tests.cls` in the container, run via `##class(%UnitTest.Manager).RunTest("rooms","/load/run/nodelete/recursive")`. Portal result: `http://localhost:52778/csp/sys/%25UnitTest.Portal.Indices.cls?Index=9&$NAMESPACE=USER`
+     - Both `src/rooms.Tests.cls` (repo) and the server-side class are in sync.
+
+     Want me to apply the one-line `<` fix to `rooms.Scheduler` and re-run to green?
+
+     ▣  Build · GLM-5.3-Flash · 46m 26s
